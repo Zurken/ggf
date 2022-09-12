@@ -52,6 +52,7 @@ typedef struct {
 
 typedef struct {
   ggf_font_t font;
+  ggf_asset_stage_index_t playing_asset_stage;
 } global_state_t;
 
 #define MAX_SINGLE_USE_PARTICLES 128
@@ -66,6 +67,7 @@ enum {
 
 typedef struct {
   f32 chance;
+  ggf_texture_t texture;
 } powerup_info_t;
 
 global_variable powerup_info_t powerup_infos[POWERUP_COUNT];
@@ -268,6 +270,8 @@ internal_func game_state_t create_playing_state() {
   playing_state_t *state =
       ggf_memory_alloc(sizeof(playing_state_t), GGF_MEMORY_TAG_GAME);
 
+  ggf_asset_stage_use(global_state.playing_asset_stage);
+
   player_t *p = &state->player;
   glm_vec2_copy((vec2){125.0f, 25.0f}, p->size);
   glm_vec2_copy((vec2){1280.0f / 2.0f - p->size[0] / 2.0f, 650.0f}, p->pos);
@@ -291,8 +295,8 @@ internal_func game_state_t create_playing_state() {
                            &state->single_use_particles[i]);
   }
 
-  powerup_infos[POWERUP_THREE_BALLS].chance = 0.1f;
-  powerup_infos[POWERUP_DOUBLE_BALLS].chance = 0.01f;
+  powerup_infos[POWERUP_THREE_BALLS].chance = 0.2f;
+  powerup_infos[POWERUP_DOUBLE_BALLS].chance = 0.1f; 
 
   game_state_t result;
   result.update_func = update_playing_state;
@@ -314,6 +318,19 @@ internal_func game_state_t update_playing_state(game_state_t game_state) {
   playing_state_t *state = game_state.data;
   player_t *p = &state->player;
   balls_t *balls = &state->balls;
+
+  if (!ggf_asset_stage_is_loaded(global_state.playing_asset_stage)) {
+    char *text = "Loading...";
+    ggf_gfx_draw_text(text, (vec2){(1280.0f / 2.0f) / 2.0f, 720.0f / 2.0f}, 32,
+                      (vec4){1.0f, 1.0f, 1.0f, 1.0f},
+                      &global_state.font);
+    return game_state;
+  } else if (powerup_infos[POWERUP_THREE_BALLS].texture.id == 0) {
+    void *data = ggf_asset_get_data(ggf_asset_get_handle("three_ball_powerup"));
+    ggf_texture_create(data, GGF_TEXTURE_FORMAT_RGBA8, 32, 32,
+      GGF_TEXTURE_FILTER_LINEAR, GGF_TEXTURE_WRAP_CLAMP_TO_BORDER, 
+      &powerup_infos[POWERUP_THREE_BALLS].texture);
+  }
 
   state->time += 1.0f / 60.0f;
 
@@ -423,10 +440,12 @@ internal_func game_state_t update_playing_state(game_state_t game_state) {
 
     if (aabb_test(powerup->pos, (vec2){25.0f, 25.0f}, p->pos, p->size)) {
       if (powerup->type == POWERUP_THREE_BALLS) {
-        vec2 spawn_pos = {p->pos[0] + p->size[0] / 2.0f,
+        vec2 spawn_pos = {powerup->pos[0] + 25.0f / 2.0f,
                       p->pos[1] - balls->size[1] - 10.0f};
 
         add_ball(&state->balls, spawn_pos, (vec2){0.0f, -1.0f});
+        add_ball(&state->balls, spawn_pos, (vec2){0.85f, -0.525f});
+        add_ball(&state->balls, spawn_pos, (vec2){-0.85f, -0.525f});
       }
       state->powerup_count--;
       state->powerups[i] = state->powerups[state->powerup_count];
@@ -465,7 +484,7 @@ internal_func game_state_t update_playing_state(game_state_t game_state) {
 
   for (u32 i = 0; i < state->powerup_count; ++i) {
     powerup_t *powerup = state->powerups + i;
-    ggf_draw_quad_extent(powerup->pos, (vec2){25.0f, 25.0f}, 0.0f, (vec4){0.3f, 0.5f, 0.3f, 0.5f}, NULL);
+    ggf_draw_quad_extent(powerup->pos, (vec2){25.0f, 25.0f}, 0.0f, (vec4){1.0f, 1.0f, 1.0f, 1.0f}, &powerup_infos[POWERUP_THREE_BALLS].texture);
   }
 
   if (balls->count == 0 && !state->lose_transition.active) {
@@ -632,6 +651,15 @@ i32 main(i32 argc, char **argv) {
   ggf_gfx_init(1280, 720);
 
   ggf_font_load("test old.png", "test old.csv", &global_state.font);
+
+  ggf_asset_description_t assets[] = {
+    {
+      GGF_ASSET_TYPE_TEXTURE,
+      "three_ball_powerup",
+      "three_ball_powerup.png",
+    }
+  };
+  global_state.playing_asset_stage = ggf_asset_stage_create(GGF_ARRAY_COUNT(assets), assets);
 
   game_state_t state = create_playing_state();
 
