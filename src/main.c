@@ -26,7 +26,7 @@ typedef struct {
   u8 *bricks;
 } bricks_t;
 
-#define MAX_BALLS 1024
+#define MAX_BALLS 2048
 
 typedef struct {
   vec2 size;
@@ -52,12 +52,11 @@ typedef struct {
 
 typedef struct {
   ggf_font_t font;
-  ggf_asset_stage_index_t playing_asset_stage;
 } global_state_t;
 
 #define MAX_SINGLE_USE_PARTICLES 128
 
-#define MAX_POWERUPS 128
+#define MAX_POWERUPS 64
 
 enum {
   POWERUP_THREE_BALLS = 0,
@@ -128,6 +127,15 @@ internal_func void destroy_bricks(bricks_t *bricks) {
   ggf_memory_free(bricks->bricks);
 }
 
+internal_func void get_brick_color(bricks_t *bricks, u32 col, vec4 out_color) {
+  f32 p = col / (f32)bricks->cols;
+  f32 r = 0.0f;
+  f32 g = 0.0f;
+  f32 b = sinf(p * GGF_PI) * 0.5f + 0.5f;
+  vec4 result = {r, g, b, 1.0f};
+  glm_vec4_copy(result, out_color);
+}
+
 internal_func void draw_bricks(bricks_t *bricks) {
   for (u32 row = 0; row < bricks->rows; row++) {
     for (u32 col = 0; col < bricks->cols; col++) {
@@ -136,19 +144,18 @@ internal_func void draw_bricks(bricks_t *bricks) {
       if (brick_value != BRICK_EMPTY) {
         vec2 pos = {col * (bricks->size[0] + bricks->spacing) + bricks->pos[0],
                     row * (bricks->size[1] + bricks->spacing) + bricks->pos[1]};
-        ggf_draw_quad_extent(
-            pos, bricks->size, 0.0f,
-            (vec4){1.0f, 0.0f,
-                   sinf(col * GGF_PI / (f32)bricks->cols) * 0.5f + 0.2f, 1.0f},
-            NULL);
+        vec4 color;
+        get_brick_color(bricks, col, color);
+        ggf_draw_quad_extent(pos, bricks->size, 0.0f, color, NULL);
       }
     }
   }
 }
 
 internal_func void add_ball(balls_t *balls, vec2 pos, vec2 dir) {
-  if (balls->count + 1 >= MAX_BALLS)
+  if (balls->count >= MAX_BALLS) {
     return;
+  }
   glm_vec2_copy(pos, balls->positions[balls->count]);
   glm_vec2_copy(dir, balls->directions[balls->count]);
   balls->count++;
@@ -190,8 +197,8 @@ internal_func void destroy_brick(playing_state_t *state, u32 idx, u32 col,
   if (state->single_use_particles_count + 1 < MAX_SINGLE_USE_PARTICLES) {
     ++state->single_use_particles_count;
   }
-  vec4 particle_color = {
-      1.0f, 0.0f, sinf(col * GGF_PI / (f32)bricks->cols) * 0.5f + 0.2f, 1.0f};
+  vec4 particle_color;
+  get_brick_color(&state->bricks, col, particle_color);
   glm_vec4_copy(particle_color, p_system->begin_color);
   glm_vec4_copy(particle_color, p_system->end_color);
   p_system->count = 0;
@@ -220,11 +227,13 @@ internal_func void destroy_brick(playing_state_t *state, u32 idx, u32 col,
     }
   }
 
-  if (powerup_gotten != -1 && state->powerup_count < MAX_POWERUPS) {
-    powerup_t *powerup = state->powerups + state->powerup_count;
-    powerup->type = powerup_gotten;
-    glm_vec2_copy(brick_pos, powerup->pos);
-    state->powerup_count++;
+  if (powerup_gotten != -1) {
+    if (state->powerup_count < MAX_POWERUPS) {
+      powerup_t *powerup = state->powerups + state->powerup_count;
+      powerup->type = powerup_gotten;
+      glm_vec2_copy(brick_pos, powerup->pos);
+      ++state->powerup_count;
+    }
   }
 }
 
@@ -270,17 +279,16 @@ internal_func game_state_t create_playing_state() {
   playing_state_t *state =
       ggf_memory_alloc(sizeof(playing_state_t), GGF_MEMORY_TAG_GAME);
 
-  ggf_asset_stage_use(global_state.playing_asset_stage);
-
   player_t *p = &state->player;
-  glm_vec2_copy((vec2){125.0f, 25.0f}, p->size);
+  glm_vec2_copy((vec2){125.0f, 20.0f}, p->size);
   glm_vec2_copy((vec2){1280.0f / 2.0f - p->size[0] / 2.0f, 650.0f}, p->pos);
   p->speed = 10.0f;
 
   state->bricks =
-      create_bricks(10, 10, (vec2){1100.0f, 400.0f}, 5.0f, (vec2){0.0f, 0.0f});
+      create_bricks(100, 66, (vec2){1100.0f, 400.0f}, 1.0f, (vec2){0.0f, 0.0f});
 
-  glm_vec2_copy((vec2){10.0f, 10.0f}, state->balls.size);
+  f32 ball_size = 7.5f;
+  glm_vec2_copy((vec2){ball_size, ball_size}, state->balls.size);
   state->balls.speed = 5.0f;
   add_ball(&state->balls,
            (vec2){p->pos[0] + p->size[0] / 2.0f, p->pos[1] - 20.0f},
@@ -318,19 +326,6 @@ internal_func game_state_t update_playing_state(game_state_t game_state) {
   playing_state_t *state = game_state.data;
   player_t *p = &state->player;
   balls_t *balls = &state->balls;
-
-  if (!ggf_asset_stage_is_loaded(global_state.playing_asset_stage)) {
-    char *text = "Loading...";
-    ggf_gfx_draw_text(text, (vec2){(1280.0f / 2.0f) / 2.0f, 720.0f / 2.0f}, 32,
-                      (vec4){1.0f, 1.0f, 1.0f, 1.0f},
-                      &global_state.font);
-    return game_state;
-  } else if (powerup_infos[POWERUP_THREE_BALLS].texture.id == 0) {
-    void *data = ggf_asset_get_data(ggf_asset_get_handle("three_ball_powerup"));
-    ggf_texture_create(data, GGF_TEXTURE_FORMAT_RGBA8, 32, 32,
-      GGF_TEXTURE_FILTER_LINEAR, GGF_TEXTURE_WRAP_CLAMP_TO_BORDER, 
-      &powerup_infos[POWERUP_THREE_BALLS].texture);
-  }
 
   state->time += 1.0f / 60.0f;
 
@@ -443,12 +438,20 @@ internal_func game_state_t update_playing_state(game_state_t game_state) {
         vec2 spawn_pos = {powerup->pos[0] + 25.0f / 2.0f,
                       p->pos[1] - balls->size[1] - 10.0f};
 
-        add_ball(&state->balls, spawn_pos, (vec2){0.0f, -1.0f});
-        add_ball(&state->balls, spawn_pos, (vec2){0.85f, -0.525f});
-        add_ball(&state->balls, spawn_pos, (vec2){-0.85f, -0.525f});
+        add_ball(balls, spawn_pos, (vec2){0.0f, -1.0f});
+        add_ball(balls, spawn_pos, (vec2){0.85f, -0.525f});
+        add_ball(balls, spawn_pos, (vec2){-0.85f, -0.525f});
+      } else if (powerup->type == POWERUP_DOUBLE_BALLS) {
+        for (i32 i = balls->count - 1; i >= 0; --i) {
+          vec2 dir;
+          glm_vec2_scale(balls->directions[i], -1.0f, dir);
+          add_ball(balls, balls->positions[i], dir);
+        }
       }
-      state->powerup_count--;
-      state->powerups[i] = state->powerups[state->powerup_count];
+      state->powerups[i] = state->powerups[--state->powerup_count];
+    }
+    if (state->powerups[i].pos[1] >= 720.0f) {
+      state->powerups[i] = state->powerups[--state->powerup_count];
     }
   }
 
@@ -484,7 +487,18 @@ internal_func game_state_t update_playing_state(game_state_t game_state) {
 
   for (u32 i = 0; i < state->powerup_count; ++i) {
     powerup_t *powerup = state->powerups + i;
-    ggf_draw_quad_extent(powerup->pos, (vec2){25.0f, 25.0f}, 0.0f, (vec4){1.0f, 1.0f, 1.0f, 1.0f}, &powerup_infos[POWERUP_THREE_BALLS].texture);
+    f32 alpha = 0.5f;
+    vec4 powerup_color;
+    switch (powerup->type) {
+    case POWERUP_THREE_BALLS:
+      glm_vec4_copy((vec4){0.2f, 0.2f, 1.0f, alpha}, powerup_color);
+      break;
+    case POWERUP_DOUBLE_BALLS:
+      glm_vec4_copy((vec4){0.2f, 1.0f, 0.2f, alpha}, powerup_color);
+      break;
+    }
+    ggf_draw_quad_extent(powerup->pos, (vec2){25.0f, 25.0f}, 0.0f, 
+                        powerup_color, &powerup_infos[POWERUP_THREE_BALLS].texture);
   }
 
   if (balls->count == 0 && !state->lose_transition.active) {
@@ -651,15 +665,6 @@ i32 main(i32 argc, char **argv) {
   ggf_gfx_init(1280, 720);
 
   ggf_font_load("test old.png", "test old.csv", &global_state.font);
-
-  ggf_asset_description_t assets[] = {
-    {
-      GGF_ASSET_TYPE_TEXTURE,
-      "three_ball_powerup",
-      "three_ball_powerup.png",
-    }
-  };
-  global_state.playing_asset_stage = ggf_asset_stage_create(GGF_ARRAY_COUNT(assets), assets);
 
   game_state_t state = create_playing_state();
 

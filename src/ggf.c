@@ -1457,8 +1457,9 @@ internal_func void *ggf_internal_asset_system_loading_thread(void *usr) {
       if (asset->type == GGF_ASSET_TYPE_TEXTURE) {
         i32 width, height, comp_count;
         stbi_uc *pixels =
-            stbi_load(asset->path, &width, &height, &comp_count, 0);
+            stbi_load(asset->path, &width, &height, &comp_count, 3);
         u64 pixels_size = width * height * 3;
+
         u64 size = sizeof(ggf_texture_asset_data_t) + pixels_size;
         void *memory = ggf_memory_alloc(size, GGF_MEMORY_TAG_ASSET);
 
@@ -1468,6 +1469,7 @@ internal_func void *ggf_internal_asset_system_loading_thread(void *usr) {
         data->comp_count = comp_count;
         ggf_memory_copy((u8 *)memory + sizeof(ggf_texture_asset_data_t), pixels,
                         pixels_size);
+        Sleep(500);
         stbi_image_free(pixels);
 
         asset->data_size = size;
