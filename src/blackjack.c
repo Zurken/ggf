@@ -1,5 +1,9 @@
 #include "ggf.c"
 #include <time.h>
+#include <sys/time.h>
+
+#define WIDTH 1920
+#define HEIGHT 1080
 
 enum {
   CARD_ACE = 0,
@@ -47,24 +51,39 @@ typedef struct {
   u32 worth;
 } hand_t;
 
+u32 get_rand(u32 max) {
+  local_persist u32 offset = 0;
+  struct timespec seed;
+  clock_gettime(CLOCK_MONOTONIC, &seed);
+  u32 result = (u32)(ggf_randf(seed.tv_sec * 5425 + seed.tv_nsec + ++offset) * (f32)max);
+  return result;
+}
+
 i32 find_empty_card_index(i32 *deck) {
-  local_persist u32 iter = 0;
-  time_t seed = time(NULL);
-  i32 index = (i32)(ggf_randf(seed + ++iter) * 52.0f);
+  i32 index = get_rand(52);
   if (deck[index] != -1) {
-    for (u32 k = index; k < 52; ++k) {
+    for (i32 k = index + 1; k < 52; ++k) {
       if (deck[k] == -1) {
         return k;
       }
-    }
-    for (i32 k = index; k >= 0; --k) {
-      if (deck[k] == -1) {
-        return k;
-      }
+      if (k == 51) k = -1;
     }
   }
 
   return index;
+}
+
+void shuffle(int *array, size_t n) {    
+  time_t seed = time(NULL);
+
+  if (n > 1) {
+    for (i32 i = n - 1; i > 0; --i) {
+      u32 j = get_rand(i);
+      i32 t = array[j];
+      array[j] = array[i];
+      array[i] = t;
+    }
+  }
 }
 
 void generate_deck(i32 *deck) {
@@ -78,6 +97,7 @@ void generate_deck(i32 *deck) {
       deck[index] = i;
     }
   }
+  shuffle(deck, 52);
 }
 
 i32 get_card(i32 *deck) {
@@ -108,8 +128,8 @@ void draw_cards(i32 *cards, ggf_font_t *font, b32 draw_top,
   vec2 card_size = {150.0f, 225.0f};
   f32 spacing = 15.0f;
   vec2 pos = {
-      (1280.0f - card_size[0] * card_count - spacing * (card_count - 1)) / 2.0f,
-      draw_top ? spacing : 720.0f - card_size[1] - spacing};
+      (WIDTH - card_size[0] * card_count - spacing * (card_count - 1)) / 2.0f,
+      draw_top ? spacing : HEIGHT - card_size[1] - spacing};
   for (u32 i = 0; i < card_count; ++i) {
 
     ggf_draw_quad_extent((vec2){pos[0] + (card_size[0] + spacing) * i, pos[1]},
@@ -196,16 +216,16 @@ void add_card_to_hand(hand_t *hand, i32 *deck) {
 
 i32 main(i32 argc, char **argv) {
   ggf_init(argc, argv);
-  ggf_window_t *window = ggf_window_create("Blackjack", 1280, 720);
+  ggf_window_t *window = ggf_window_create("Blackjack", WIDTH, HEIGHT);
   ggf_window_set_resizable(window, FALSE);
 
-  ggf_gfx_init(1280, 720);
+  ggf_gfx_init(WIDTH, HEIGHT);
 
   ggf_font_t font;
   ggf_font_load("test old.png", "test old.csv", &font);
 
   ggf_camera_t camera = {0};
-  glm_ortho(0.0f, 1280.0f, 720.0f, 0.0f, -100.0f, 100.0f,
+  glm_ortho(0.0f, WIDTH, HEIGHT, 0.0f, -100.0f, 100.0f,
             camera.view_projection);
   ggf_gfx_set_camera(&camera);
 
@@ -224,6 +244,7 @@ i32 main(i32 argc, char **argv) {
   i32 plus_button_state = BUTTON_STATE_REST;
   i32 minus_button_state = BUTTON_STATE_REST;
   i32 deal_button_state = BUTTON_STATE_REST;
+  i32 double_button_state = BUTTON_STATE_REST;
 
   i32 money = 1000;
   i32 current_bet = 1;
@@ -249,9 +270,9 @@ i32 main(i32 argc, char **argv) {
     if (game_state == GAME_STATE_BETTING) {
       f32 side_margin = 250.0f;
       vec2 button_size = {100.0f, 100.0f};
-      vec2 minus_button_pos = {side_margin, (720.0f - button_size[1]) / 2.0f};
-      vec2 plus_button_pos = {1280.0f - button_size[0] - side_margin,
-                              (720.0f - button_size[1]) / 2.0f};
+      vec2 minus_button_pos = {side_margin, (HEIGHT - button_size[1]) / 2.0f};
+      vec2 plus_button_pos = {WIDTH - button_size[0] - side_margin,
+                              (HEIGHT - button_size[1]) / 2.0f};
 
       if (button("-", &font, minus_button_pos, button_size, mouse_pos,
                  &minus_button_state)) {
@@ -284,8 +305,8 @@ i32 main(i32 argc, char **argv) {
                                           : current_bet;
 
       vec2 deal_button_size = {300.0f, 100.0f};
-      vec2 deal_button_pos = {(1280.0f - deal_button_size[0]) / 2.0f,
-                              720.0f - 250.0f};
+      vec2 deal_button_pos = {(WIDTH - deal_button_size[0]) / 2.0f,
+                              HEIGHT - 250.0f};
       if (current_bet > 0 &&
               (button("DEAL", &font, deal_button_pos, deal_button_size,
                      mouse_pos, &deal_button_state) ||
@@ -323,15 +344,17 @@ i32 main(i32 argc, char **argv) {
       vec2 button_size = {200.0f, 100.0f};
 
       vec2 stand_button_pos =
-          (vec2){1280.0f - button_side_margin - button_size[0],
-                 (720.0f - button_size[1]) / 2.0f};
+          {WIDTH - button_side_margin - button_size[0],
+                 (HEIGHT - button_size[1]) / 2.0f};
       vec2 hit_button_pos =
-          (vec2){button_side_margin, (720.0f - button_size[1]) / 2.0f};
+          {button_side_margin, (HEIGHT - button_size[1]) / 2.0f};
+      vec2 double_button_pos = {hit_button_pos[0], hit_button_pos[1] + button_size[1] + 5.0f};
 
       if (button("STAND", &font, stand_button_pos, button_size, mouse_pos,
                  &stand_button_state)) {
         game_state = GAME_STATE_DEALER_TURN;
       }
+      
       if (button("HIT", &font, hit_button_pos, button_size, mouse_pos,
                  &hit_button_state)) {
         add_card_to_hand(&player_hand, deck);
@@ -341,9 +364,25 @@ i32 main(i32 argc, char **argv) {
           } else {
             game_state = GAME_STATE_RESULT;
           }
-        }
-        if (player_hand.worth > 21) {
+        } else if (player_hand.worth > 21) {
           game_state = GAME_STATE_RESULT;
+        }
+      }
+      if (ggf_darray_get_length(player_hand.cards) == 2 && current_bet * 2 <= money) {
+        if (button("DOUBLE", &font, double_button_pos, button_size, mouse_pos, &double_button_state)) {
+          current_bet *= 2;
+          add_card_to_hand(&player_hand, deck);
+          if (player_hand.worth == 21) {
+            if (dealer_hand.worth == 10 || dealer_hand.worth == 11) {
+              game_state = GAME_STATE_DEALER_TURN;
+            } else {
+              game_state = GAME_STATE_RESULT;
+            }
+          } else if (player_hand.worth > 21) {
+            game_state = GAME_STATE_RESULT;
+          } else {
+            game_state = GAME_STATE_DEALER_TURN;
+          }
         }
       }
     } else if (game_state == GAME_STATE_DEALER_TURN) {
@@ -408,14 +447,14 @@ i32 main(i32 argc, char **argv) {
       f32 cards_info_width =
           ggf_font_get_text_width(&font, cards_info, info_text_size);
       ggf_gfx_draw_text(cards_info,
-                        (vec2){(1280.0f - cards_info_width) / 2.0f, 470.0f},
+                        (vec2){(WIDTH - cards_info_width) / 2.0f, HEIGHT - 250.0f},
                         info_text_size, (vec4){1.0f, 0.5f, 0.5f, 1.0f}, &font);
 
       snprintf(cards_info, 128, "%d", dealer_hand.worth);
       cards_info_width =
           ggf_font_get_text_width(&font, cards_info, info_text_size);
       ggf_gfx_draw_text(cards_info,
-                        (vec2){(1280.0f - cards_info_width) / 2.0f, 285.0f},
+                        (vec2){(WIDTH - cards_info_width) / 2.0f, 285.0f},
                         info_text_size, (vec4){0.5f, 0.5f, 1.0f, 1.0f}, &font);
 
       draw_cards(dealer_hand.cards, &font, TRUE,
@@ -438,12 +477,12 @@ i32 main(i32 argc, char **argv) {
         f32 result_text_width =
             ggf_font_get_text_width(&font, result_text, text_size);
         ggf_gfx_draw_text(result_text,
-                          (vec2){(1280.0f - result_text_width) / 2.0f,
-                                 720.0f / 2.0f + text_size / 3.0f},
+                          (vec2){(WIDTH - result_text_width) / 2.0f,
+                                 HEIGHT / 2.0f + text_size / 3.0f},
                           text_size, (vec4){1.0f, 1.0f, 1.0f, 1.0f}, &font);
         ggf_draw_quad_extent(
-            (vec2){(1280.0f - result_text_width) / 2.0f - 20.0f,
-                   720.0f / 2.0f - 220.0f + text_size / 3.0f},
+            (vec2){(WIDTH - result_text_width) / 2.0f - 20.0f,
+                   HEIGHT / 2.0f - 220.0f + text_size / 3.0f},
             (vec2){result_text_width + 40, (f32)text_size}, 2.0f,
             (vec4){0.0f, 0.0f, 0.0f, 0.5f}, NULL);
       }
@@ -453,8 +492,8 @@ i32 main(i32 argc, char **argv) {
       u64 text_size = 64;
       f32 text_width = ggf_font_get_text_width(&font, bet_text, text_size);
       ggf_gfx_draw_text(bet_text,
-                        (vec2){(1280.0f - text_width) / 2.0f,
-                               720.0f / 2.0f + text_size / 3.0f},
+                        (vec2){(WIDTH - text_width) / 2.0f,
+                               HEIGHT / 2.0f + text_size / 3.0f},
                         text_size, (vec4){0.0f, 0.0f, 0.0f, 1.0f}, &font);
     }
 
