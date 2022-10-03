@@ -1469,7 +1469,6 @@ internal_func void *ggf_internal_asset_system_loading_thread(void *usr) {
         data->comp_count = comp_count;
         ggf_memory_copy((u8 *)memory + sizeof(ggf_texture_asset_data_t), pixels,
                         pixels_size);
-        Sleep(500);
         stbi_image_free(pixels);
 
         asset->data_size = size;
