@@ -121,7 +121,7 @@ b32 point_in_rect(vec2 point, vec2 pos, vec2 extent) {
   return result;
 }
 
-void draw_cards(i32 *cards, ggf_font_t *font, b32 draw_top, vec4 color) {
+void render_cards(i32 *cards, ggf_font_t *font, vec2 center, vec4 color) {
   char *card_names[CARD_COUNT] = {
       "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "D", "K",
   };
@@ -129,9 +129,9 @@ void draw_cards(i32 *cards, ggf_font_t *font, b32 draw_top, vec4 color) {
   u32 card_count = ggf_darray_get_length(cards);
   vec2 card_size = {150.0f, 225.0f};
   f32 spacing = 15.0f;
-  vec2 pos = {(WIDTH - card_size[0] * card_count - spacing * (card_count - 1)) /
-                  2.0f,
-              draw_top ? spacing : HEIGHT - card_size[1] - spacing};
+  vec2 pos = { 
+          center[0] - (card_size[0] * card_count + spacing * (card_count - 1)) / 2.0f,
+          center[1] - card_size[1] / 2.0f};
   for (u32 i = 0; i < card_count; ++i) {
 
     ggf_draw_quad_extent((vec2){pos[0] + (card_size[0] + spacing) * i, pos[1]},
@@ -249,6 +249,7 @@ i32 main(i32 argc, char **argv) {
   i32 minus_button_state = BUTTON_STATE_REST;
   i32 deal_button_state = BUTTON_STATE_REST;
   i32 double_button_state = BUTTON_STATE_REST;
+  i32 split_button_state = BUTTON_STATE_REST;
 
   i32 money = 1000;
   i32 current_bet = 1;
@@ -322,7 +323,7 @@ i32 main(i32 argc, char **argv) {
         hand_t *hand = player_hands + i;
         u32 card_count = ggf_darray_get_length(hand->cards);
         if ((dealer_timer > (i+1) * 0.5f && card_count == 0) || (dealer_timer - 0.5f > (i+1) * 1.0f && card_count == 1)) {
-          add_card_to_hand(hand, get_card(deck));
+          add_card_to_hand(hand, CARD_9);
         }
       }
       if (dealer_timer > (player_hand_count+1) * 0.5f && ggf_darray_get_length(dealer_hand.cards) == 0) {
@@ -336,6 +337,18 @@ i32 main(i32 argc, char **argv) {
     } else if (game_state == GAME_STATE_PLAYER_TURN) {
 
       hand_t *hand = player_hands + player_hand_index;
+      u32 card_count = ggf_darray_get_length(hand->cards);
+
+      if (card_count == 1) {
+        dealer_timer += dt;
+        if (dealer_timer >= 0.5f) {
+          add_card_to_hand(hand, get_card(deck));
+          dealer_timer = 0.0f;
+        }
+      }
+
+      // TODO: Only allow one split per round
+      b32 can_split = card_count == 2 && hand->cards[0] == hand->cards[1];
 
       f32 button_side_margin = 150.0f;
       vec2 button_size = {200.0f, 100.0f};
@@ -344,7 +357,7 @@ i32 main(i32 argc, char **argv) {
                                (HEIGHT - button_size[1]) / 2.0f};
       vec2 hit_button_pos = {button_side_margin,
                              (HEIGHT - button_size[1]) / 2.0f};
-      vec2 double_button_pos = {hit_button_pos[0],
+      vec2 split_button_pos = {hit_button_pos[0],
                                 hit_button_pos[1] + button_size[1] + 5.0f};
 
       if (button("STAND", &font, stand_button_pos, button_size, mouse_pos,
@@ -362,15 +375,33 @@ i32 main(i32 argc, char **argv) {
         add_card_to_hand(hand, get_card(deck));
       }
 
-      /*if (hand->worth == 21) {
-        if (dealer_hand.worth == 10 || dealer_hand.worth == 11) {
-          game_state = GAME_STATE_DEALER_TURN;
+      if (can_split && button("SPLIT", &font, split_button_pos, button_size, mouse_pos, &split_button_state)) {
+        i32 card;
+        ggf_darray_pop(hand->cards, &card);
+        
+        hand_t *new_hand = player_hands + player_hand_count;
+        ggf_darray_push(new_hand->cards, &card);
+        new_hand->worth = calculate_cards_worth(new_hand->cards);
+        ++player_hand_count;
+      }
+
+      if (hand->worth == 21) {
+        if (player_hand_index == player_hand_count - 1) {
+          if (dealer_hand.worth == 10 || dealer_hand.worth == 11) {
+            game_state = GAME_STATE_DEALER_TURN;
+          } else {
+            game_state = GAME_STATE_RESULT;
+          }
         } else {
-          game_state = GAME_STATE_RESULT;
+          ++player_hand_index;
         }
-      } else if (player_hand.worth > 21) {
-        game_state = GAME_STATE_RESULT;
-      }*/
+      } else if (hand->worth > 21) {
+        if (player_hand_index == player_hand_count - 1) {
+          game_state = GAME_STATE_RESULT;
+        } else {
+          ++player_hand_index;
+        }
+      }
 
       /*if (ggf_darray_get_length(player_hand.cards) == 2 &&
           current_bet * 2 <= money) {
@@ -457,62 +488,48 @@ i32 main(i32 argc, char **argv) {
       u32 info_text_size = 52;
       char cards_info[128];
 
-      // PLAYER HAND - TODO: draw all hands
+      // PLAYER HANDs
 
-      hand_t *p_hand = player_hands + player_hand_index;
+      f32 section_size = WIDTH / player_hand_count;
+      for (u32 i = 0; i < player_hand_count; ++i) {
+        hand_t *p_hand = player_hands + i;
+        vec2 pos = {section_size * i + section_size / 2.0f, HEIGHT - 115.0f};
 
-      snprintf(cards_info, 128, "%d", p_hand->worth);
-      f32 cards_info_width =
-          ggf_font_get_text_width(&font, cards_info, info_text_size);
-      ggf_gfx_draw_text(
-          cards_info,
-          (vec2){(WIDTH - cards_info_width) / 2.0f, HEIGHT - 250.0f},
-          info_text_size, (vec4){1.0f, 0.5f, 0.5f, 1.0f}, &font);
+        if (game_state == GAME_STATE_RESULT) {
+          if (p_hand->result == RESULT_PLAYER_WIN) {
+            snprintf(cards_info, 128, "WIN");
+          } else if (p_hand->result == RESULT_PLAYER_LOSE) {
+            snprintf(cards_info, 128, "LOSE");
+          } else if (p_hand->result == RESULT_PUSH) {
+            snprintf(cards_info, 128, "PUSH");
+          }
+        } else {
+          snprintf(cards_info, 128, "%d", p_hand->worth);
+        }
+        f32 cards_info_width =
+            ggf_font_get_text_width(&font, cards_info, info_text_size);
+        ggf_gfx_draw_text(
+            cards_info,
+            (vec2){pos[0] - cards_info_width / 2.0f, HEIGHT - 250.0f},
+            info_text_size, (vec4){1.0f, 0.5f, 0.5f, 1.0f}, &font);
 
-      draw_cards(p_hand->cards, &font, FALSE, (vec4){1.0f, 0.1f, 0.1f, 1.0f});
+        render_cards(p_hand->cards, &font, pos, (vec4){1.0f, 0.1f, 0.1f, 1.0f});
+      }
 
       // DEALER HAND
 
       snprintf(cards_info, 128, "%d", dealer_hand.worth);
-      cards_info_width =
+      f32 cards_info_width =
           ggf_font_get_text_width(&font, cards_info, info_text_size);
       ggf_gfx_draw_text(cards_info,
                         (vec2){(WIDTH - cards_info_width) / 2.0f, 285.0f},
                         info_text_size, (vec4){0.5f, 0.5f, 1.0f, 1.0f}, &font);
 
-      draw_cards(dealer_hand.cards, &font, TRUE,
-                 (vec4){0.1f, 0.1f, 0.9f, 1.0f});
+      render_cards(dealer_hand.cards, &font, 
+      (vec2){WIDTH / 2.0f, 115.0f}, (vec4){0.1f, 0.1f, 0.9f, 1.0f});
     }
 
-    if (game_state == GAME_STATE_RESULT) {
-      // TODO: Draw result for each hand
-      hand_t *hand = player_hands + player_hand_index;
-      if (hand->result != RESULT_NONE) {
-        char result_text[128];
-        switch (hand->result) {
-        case RESULT_PLAYER_LOSE:
-          snprintf(result_text, 128, "You lose");
-          break;
-        case RESULT_PLAYER_WIN:
-          snprintf(result_text, 128, "You WIN!");
-          break;
-        case RESULT_PUSH:
-          snprintf(result_text, 128, "Push");
-          break;
-        }
-        u32 text_size = 256;
-        f32 result_text_width =
-            ggf_font_get_text_width(&font, result_text, text_size);
-        ggf_gfx_draw_text(result_text,
-                          (vec2){(WIDTH - result_text_width) / 2.0f,
-                                 HEIGHT / 2.0f + text_size / 3.0f},
-                          text_size, (vec4){1.0f, 1.0f, 1.0f, 1.0f}, &font);
-        ggf_draw_quad_extent((vec2){(WIDTH - result_text_width) / 2.0f - 20.0f,
-                                    HEIGHT / 2.0f - 220.0f + text_size / 3.0f},
-                             (vec2){result_text_width + 40, (f32)text_size},
-                             2.0f, (vec4){0.0f, 0.0f, 0.0f, 0.5f}, NULL);
-      }
-    } else {
+    if (game_state != GAME_STATE_RESULT) {
       char bet_text[128];
       snprintf(bet_text, 128, "$%d", current_bet);
       u64 text_size = 64;
