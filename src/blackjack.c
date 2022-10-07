@@ -1,9 +1,9 @@
 #include "ggf.c"
-#include <time.h>
 #include <sys/time.h>
+#include <time.h>
 
-#define WIDTH 1920
-#define HEIGHT 1080
+#define WIDTH 1280
+#define HEIGHT 720
 
 enum {
   CARD_ACE = 0,
@@ -47,6 +47,7 @@ enum {
 };
 
 typedef struct {
+  i32 result;
   i32 *cards;
   u32 worth;
 } hand_t;
@@ -55,7 +56,8 @@ u32 get_rand(u32 max) {
   local_persist u32 offset = 0;
   struct timespec seed;
   clock_gettime(CLOCK_MONOTONIC, &seed);
-  u32 result = (u32)(ggf_randf(seed.tv_sec * 5425 + seed.tv_nsec + ++offset) * (f32)max);
+  u32 result =
+      (u32)(ggf_randf(seed.tv_sec * 5425 + seed.tv_nsec + ++offset) * (f32)max);
   return result;
 }
 
@@ -66,14 +68,15 @@ i32 find_empty_card_index(i32 *deck) {
       if (deck[k] == -1) {
         return k;
       }
-      if (k == 51) k = -1;
+      if (k == 51)
+        k = -1;
     }
   }
 
   return index;
 }
 
-void shuffle(int *array, size_t n) {    
+void shuffle(int *array, size_t n) {
   time_t seed = time(NULL);
 
   if (n > 1) {
@@ -118,8 +121,7 @@ b32 point_in_rect(vec2 point, vec2 pos, vec2 extent) {
   return result;
 }
 
-void draw_cards(i32 *cards, ggf_font_t *font, b32 draw_top,
-                vec4 color) {
+void draw_cards(i32 *cards, ggf_font_t *font, b32 draw_top, vec4 color) {
   char *card_names[CARD_COUNT] = {
       "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "D", "K",
   };
@@ -127,9 +129,9 @@ void draw_cards(i32 *cards, ggf_font_t *font, b32 draw_top,
   u32 card_count = ggf_darray_get_length(cards);
   vec2 card_size = {150.0f, 225.0f};
   f32 spacing = 15.0f;
-  vec2 pos = {
-      (WIDTH - card_size[0] * card_count - spacing * (card_count - 1)) / 2.0f,
-      draw_top ? spacing : HEIGHT - card_size[1] - spacing};
+  vec2 pos = {(WIDTH - card_size[0] * card_count - spacing * (card_count - 1)) /
+                  2.0f,
+              draw_top ? spacing : HEIGHT - card_size[1] - spacing};
   for (u32 i = 0; i < card_count; ++i) {
 
     ggf_draw_quad_extent((vec2){pos[0] + (card_size[0] + spacing) * i, pos[1]},
@@ -208,8 +210,8 @@ void create_hand(hand_t *hand) {
   hand->worth = 0;
 }
 
-void add_card_to_hand(hand_t *hand, i32 *deck) {
-  i32 new_card = get_card(deck);
+void add_card_to_hand(hand_t *hand, i32 card) {
+  i32 new_card = card;
   hand->cards = ggf_darray_push(hand->cards, &new_card);
   hand->worth = calculate_cards_worth(hand->cards);
 }
@@ -225,17 +227,19 @@ i32 main(i32 argc, char **argv) {
   ggf_font_load("test old.png", "test old.csv", &font);
 
   ggf_camera_t camera = {0};
-  glm_ortho(0.0f, WIDTH, HEIGHT, 0.0f, -100.0f, 100.0f,
-            camera.view_projection);
+  glm_ortho(0.0f, WIDTH, HEIGHT, 0.0f, -100.0f, 100.0f, camera.view_projection);
   ggf_gfx_set_camera(&camera);
 
   i32 deck[52];
   generate_deck(deck);
 
-  hand_t player_hand;
-  create_hand(&player_hand);
+  u32 player_hand_index = 0;
+  u32 player_hand_count = 1;
+  hand_t player_hands[2] = {};
+  create_hand(player_hands + 0);
+  create_hand(player_hands + 1);
 
-  hand_t dealer_hand;
+  hand_t dealer_hand = {};
   create_hand(&dealer_hand);
 
   i32 stand_button_state = BUTTON_STATE_REST;
@@ -252,8 +256,6 @@ i32 main(i32 argc, char **argv) {
   i32 game_state = GAME_STATE_BETTING;
 
   f32 dealer_timer = 0.0f;
-
-  i32 result = RESULT_NONE;
 
   f32 dt = 1.0f / 60.0f;
   while (ggf_window_is_open(window)) {
@@ -308,70 +310,74 @@ i32 main(i32 argc, char **argv) {
       vec2 deal_button_pos = {(WIDTH - deal_button_size[0]) / 2.0f,
                               HEIGHT - 250.0f};
       if (current_bet > 0 &&
-              (button("DEAL", &font, deal_button_pos, deal_button_size,
-                     mouse_pos, &deal_button_state) ||
-          ggf_input_key_released(GGF_KEY_SPACE))) {
+          (button("DEAL", &font, deal_button_pos, deal_button_size, mouse_pos,
+                  &deal_button_state) ||
+           ggf_input_key_released(GGF_KEY_SPACE))) {
         game_state = GAME_STATE_DEALING;
       }
     } else if (game_state == GAME_STATE_DEALING) {
       dealer_timer += dt;
-      u32 player_card_count = ggf_darray_get_length(player_hand.cards);
-      u32 dealer_card_count = ggf_darray_get_length(dealer_hand.cards);
-      if (dealer_timer >= 0.5f ||
-          (player_card_count == 0 && dealer_card_count == 0)) {
-        if (player_card_count == 0 ||
-            (player_card_count == 1 && dealer_card_count == 1)) {
-          add_card_to_hand(&player_hand, deck);
-        } else if (player_card_count == 1 && dealer_card_count == 0) {
-          add_card_to_hand(&dealer_hand, deck);
-        } else {
-          if (player_hand.worth == 21) {
-            if (dealer_hand.worth == 10 || dealer_hand.worth == 11) {
-              game_state = GAME_STATE_DEALER_TURN;
-            } else {
-              game_state = GAME_STATE_RESULT;
-            }
-          } else {
-            game_state = GAME_STATE_PLAYER_TURN;
-          }
-        }
 
+      for (u32 i = 0; i < player_hand_count; ++i) {
+        hand_t *hand = player_hands + i;
+        u32 card_count = ggf_darray_get_length(hand->cards);
+        if ((dealer_timer > (i+1) * 0.5f && card_count == 0) || (dealer_timer - 0.5f > (i+1) * 1.0f && card_count == 1)) {
+          add_card_to_hand(hand, get_card(deck));
+        }
+      }
+      if (dealer_timer > (player_hand_count+1) * 0.5f && ggf_darray_get_length(dealer_hand.cards) == 0) {
+        add_card_to_hand(&dealer_hand, get_card(deck));
+      }
+      if (dealer_timer > player_hand_count * 1.0f + 0.5f) {
         dealer_timer = 0.0f;
+        game_state = GAME_STATE_PLAYER_TURN;
       }
 
     } else if (game_state == GAME_STATE_PLAYER_TURN) {
+
+      hand_t *hand = player_hands + player_hand_index;
+
       f32 button_side_margin = 150.0f;
       vec2 button_size = {200.0f, 100.0f};
 
-      vec2 stand_button_pos =
-          {WIDTH - button_side_margin - button_size[0],
-                 (HEIGHT - button_size[1]) / 2.0f};
-      vec2 hit_button_pos =
-          {button_side_margin, (HEIGHT - button_size[1]) / 2.0f};
-      vec2 double_button_pos = {hit_button_pos[0], hit_button_pos[1] + button_size[1] + 5.0f};
+      vec2 stand_button_pos = {WIDTH - button_side_margin - button_size[0],
+                               (HEIGHT - button_size[1]) / 2.0f};
+      vec2 hit_button_pos = {button_side_margin,
+                             (HEIGHT - button_size[1]) / 2.0f};
+      vec2 double_button_pos = {hit_button_pos[0],
+                                hit_button_pos[1] + button_size[1] + 5.0f};
 
       if (button("STAND", &font, stand_button_pos, button_size, mouse_pos,
                  &stand_button_state)) {
-        game_state = GAME_STATE_DEALER_TURN;
-      }
-      
-      if (button("HIT", &font, hit_button_pos, button_size, mouse_pos,
-                 &hit_button_state)) {
-        add_card_to_hand(&player_hand, deck);
-        if (player_hand.worth == 21) {
-          if (dealer_hand.worth == 10 || dealer_hand.worth == 11) {
-            game_state = GAME_STATE_DEALER_TURN;
-          } else {
-            game_state = GAME_STATE_RESULT;
-          }
-        } else if (player_hand.worth > 21) {
-          game_state = GAME_STATE_RESULT;
+        if (player_hand_index == player_hand_count - 1) {
+          game_state = GAME_STATE_DEALER_TURN;
+          player_hand_index = 0;
+        } else {
+          ++player_hand_index;
         }
       }
-      if (ggf_darray_get_length(player_hand.cards) == 2 && current_bet * 2 <= money) {
-        if (button("DOUBLE", &font, double_button_pos, button_size, mouse_pos, &double_button_state)) {
+
+      if (button("HIT", &font, hit_button_pos, button_size, mouse_pos,
+                 &hit_button_state)) {
+        add_card_to_hand(hand, get_card(deck));
+      }
+
+      /*if (hand->worth == 21) {
+        if (dealer_hand.worth == 10 || dealer_hand.worth == 11) {
+          game_state = GAME_STATE_DEALER_TURN;
+        } else {
+          game_state = GAME_STATE_RESULT;
+        }
+      } else if (player_hand.worth > 21) {
+        game_state = GAME_STATE_RESULT;
+      }*/
+
+      /*if (ggf_darray_get_length(player_hand.cards) == 2 &&
+          current_bet * 2 <= money) {
+        if (button("DOUBLE", &font, double_button_pos, button_size, mouse_pos,
+                   &double_button_state)) {
           current_bet *= 2;
-          add_card_to_hand(&player_hand, deck);
+          add_card_to_hand(&player_hand, get_card(deck));
           if (player_hand.worth == 21) {
             if (dealer_hand.worth == 10 || dealer_hand.worth == 11) {
               game_state = GAME_STATE_DEALER_TURN;
@@ -384,11 +390,11 @@ i32 main(i32 argc, char **argv) {
             game_state = GAME_STATE_DEALER_TURN;
           }
         }
-      }
+      }*/
     } else if (game_state == GAME_STATE_DEALER_TURN) {
       dealer_timer += dt;
       if (dealer_timer >= 1.0f) {
-        add_card_to_hand(&dealer_hand, deck);
+        add_card_to_hand(&dealer_hand, get_card(deck));
 
         if (dealer_hand.worth >= 17) {
           game_state = GAME_STATE_RESULT;
@@ -398,35 +404,43 @@ i32 main(i32 argc, char **argv) {
       }
     } else if (game_state == GAME_STATE_RESULT) {
       while (ggf_darray_get_length(dealer_hand.cards) < 2) {
-        add_card_to_hand(&dealer_hand, deck);
+        add_card_to_hand(&dealer_hand, get_card(deck));
       }
 
-      if (result == RESULT_NONE) {
-        if (player_hand.worth > 21) {
-          result = RESULT_PLAYER_LOSE;
-          money -= current_bet;
-        } else if (dealer_hand.worth > 21 ||
-                   player_hand.worth > dealer_hand.worth) {
-          result = RESULT_PLAYER_WIN;
-          money += current_bet;
-          if (player_hand.worth == 21) {
+      for (u32 i = 0; i < player_hand_count; ++i) {
+        hand_t *hand = player_hands + i;
+        if (hand->result == RESULT_NONE) {
+          if (hand->worth > 21) {
+            hand->result = RESULT_PLAYER_LOSE;
+            money -= current_bet;
+          } else if (dealer_hand.worth > 21 ||
+                     hand->worth > dealer_hand.worth) {
+            hand->result = RESULT_PLAYER_WIN;
             money += current_bet;
+            if (hand->worth == 21) {
+              money += current_bet;
+            }
+          } else if (dealer_hand.worth == hand->worth) {
+            hand->result = RESULT_PUSH;
+          } else if (dealer_hand.worth > hand->worth) {
+            hand->result = RESULT_PLAYER_LOSE;
+            money -= current_bet;
           }
-        } else if (dealer_hand.worth == player_hand.worth) {
-          result = RESULT_PUSH;
-        } else if (dealer_hand.worth > player_hand.worth) {
-          result = RESULT_PLAYER_LOSE;
-          money -= current_bet;
         }
       }
 
       if (ggf_input_key_released(GGF_KEY_SPACE) ||
           ggf_input_mouse_released(GGF_MOUSE_BUTTON_LEFT)) {
-        ggf_darray_clear(player_hand.cards);
+        for (u32 i = 0; i < player_hand_count; ++i) {
+          hand_t *hand = player_hands + i;
+          ggf_darray_clear(hand->cards);
+          hand->worth = 0;
+          hand->result = RESULT_NONE;
+        }
+        player_hand_count = 1;
+        player_hand_index = 0;
         ggf_darray_clear(dealer_hand.cards);
-        player_hand.worth = 0;
         dealer_hand.worth = 0;
-        result = RESULT_NONE;
 
         generate_deck(deck);
 
@@ -441,14 +455,23 @@ i32 main(i32 argc, char **argv) {
 
     if (game_state != GAME_STATE_BETTING) {
       u32 info_text_size = 52;
-
       char cards_info[128];
-      snprintf(cards_info, 128, "%d", player_hand.worth);
+
+      // PLAYER HAND - TODO: draw all hands
+
+      hand_t *p_hand = player_hands + player_hand_index;
+
+      snprintf(cards_info, 128, "%d", p_hand->worth);
       f32 cards_info_width =
           ggf_font_get_text_width(&font, cards_info, info_text_size);
-      ggf_gfx_draw_text(cards_info,
-                        (vec2){(WIDTH - cards_info_width) / 2.0f, HEIGHT - 250.0f},
-                        info_text_size, (vec4){1.0f, 0.5f, 0.5f, 1.0f}, &font);
+      ggf_gfx_draw_text(
+          cards_info,
+          (vec2){(WIDTH - cards_info_width) / 2.0f, HEIGHT - 250.0f},
+          info_text_size, (vec4){1.0f, 0.5f, 0.5f, 1.0f}, &font);
+
+      draw_cards(p_hand->cards, &font, FALSE, (vec4){1.0f, 0.1f, 0.1f, 1.0f});
+
+      // DEALER HAND
 
       snprintf(cards_info, 128, "%d", dealer_hand.worth);
       cards_info_width =
@@ -459,19 +482,23 @@ i32 main(i32 argc, char **argv) {
 
       draw_cards(dealer_hand.cards, &font, TRUE,
                  (vec4){0.1f, 0.1f, 0.9f, 1.0f});
-      draw_cards(player_hand.cards, &font, FALSE,
-                 (vec4){1.0f, 0.1f, 0.1f, 1.0f});
     }
 
     if (game_state == GAME_STATE_RESULT) {
-      if (result != RESULT_NONE) {
+      // TODO: Draw result for each hand
+      hand_t *hand = player_hands + player_hand_index;
+      if (hand->result != RESULT_NONE) {
         char result_text[128];
-        if (result == RESULT_PLAYER_LOSE) {
+        switch (hand->result) {
+        case RESULT_PLAYER_LOSE:
           snprintf(result_text, 128, "You lose");
-        } else if (result == RESULT_PLAYER_WIN) {
+          break;
+        case RESULT_PLAYER_WIN:
           snprintf(result_text, 128, "You WIN!");
-        } else if (result == RESULT_PUSH) {
+          break;
+        case RESULT_PUSH:
           snprintf(result_text, 128, "Push");
+          break;
         }
         u32 text_size = 256;
         f32 result_text_width =
@@ -480,21 +507,20 @@ i32 main(i32 argc, char **argv) {
                           (vec2){(WIDTH - result_text_width) / 2.0f,
                                  HEIGHT / 2.0f + text_size / 3.0f},
                           text_size, (vec4){1.0f, 1.0f, 1.0f, 1.0f}, &font);
-        ggf_draw_quad_extent(
-            (vec2){(WIDTH - result_text_width) / 2.0f - 20.0f,
-                   HEIGHT / 2.0f - 220.0f + text_size / 3.0f},
-            (vec2){result_text_width + 40, (f32)text_size}, 2.0f,
-            (vec4){0.0f, 0.0f, 0.0f, 0.5f}, NULL);
+        ggf_draw_quad_extent((vec2){(WIDTH - result_text_width) / 2.0f - 20.0f,
+                                    HEIGHT / 2.0f - 220.0f + text_size / 3.0f},
+                             (vec2){result_text_width + 40, (f32)text_size},
+                             2.0f, (vec4){0.0f, 0.0f, 0.0f, 0.5f}, NULL);
       }
     } else {
       char bet_text[128];
       snprintf(bet_text, 128, "$%d", current_bet);
       u64 text_size = 64;
       f32 text_width = ggf_font_get_text_width(&font, bet_text, text_size);
-      ggf_gfx_draw_text(bet_text,
-                        (vec2){(WIDTH - text_width) / 2.0f,
-                               HEIGHT / 2.0f + text_size / 3.0f},
-                        text_size, (vec4){0.0f, 0.0f, 0.0f, 1.0f}, &font);
+      ggf_gfx_draw_text(
+          bet_text,
+          (vec2){(WIDTH - text_width) / 2.0f, HEIGHT / 2.0f + text_size / 3.0f},
+          text_size, (vec4){0.0f, 0.0f, 0.0f, 1.0f}, &font);
     }
 
     ggf_gfx_flush();
@@ -503,7 +529,9 @@ i32 main(i32 argc, char **argv) {
   }
 
   ggf_darray_destroy(dealer_hand.cards);
-  ggf_darray_destroy(player_hand.cards);
+  for (u32 i = 0; i < GGF_ARRAY_COUNT(player_hands); ++i) {
+    ggf_darray_destroy(player_hands[i].cards);
+  }
 
   ggf_font_destroy(&font);
 
