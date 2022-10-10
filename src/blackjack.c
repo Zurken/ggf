@@ -2,6 +2,7 @@
 #include <sys/time.h>
 #include <time.h>
 
+// bredd och höjd på fönstret som öppnas
 #define WIDTH 1280
 #define HEIGHT 720
 
@@ -21,38 +22,47 @@ enum {
   CARD_K,
   CARD_COUNT,
 };
+// global variabel som vuisar vad varje kort är värt. J D K är värda 10.
 global_variable i32 card_worth[CARD_COUNT] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10};
 
+// de olika stadie som knappar kan ha.
 enum {
-  BUTTON_STATE_REST = 0,
-  BUTTON_STATE_HOVER,
-  BUTTON_STATE_DOWN,
-  BUTTON_STATE_RELEASED,
+  BUTTON_STATE_REST = 0, // rör inte knappen
+  BUTTON_STATE_HOVER, // håller musen över knappen
+  BUTTON_STATE_DOWN, // håller nere knappen
+  BUTTON_STATE_RELEASED, // har släppt knappen (utlöser den)
+
   BUTTON_STATE_COUNT,
 };
 
+// de olika stadier som spelet består av.
 enum {
-  GAME_STATE_BETTING,
-  GAME_STATE_DEALING,
-  GAME_STATE_PLAYER_TURN,
-  GAME_STATE_DEALER_TURN,
-  GAME_STATE_RESULT,
+  GAME_STATE_BETTING, // spelaren väljer hur mycket dem vill satsa
+  GAME_STATE_DEALING, // dealer och spelaren får sina två första kort.
+  GAME_STATE_PLAYER_TURN, // spelaren väljer om den vill ha kort eller inte.
+  GAME_STATE_DEALER_TURN, // dealer tar sina kort.
+  GAME_STATE_RESULT, // spelets resultat visas för spelaren.
 };
 
+// de olika resultat varje hand kan få
 enum {
-  RESULT_NONE,
-  RESULT_PUSH,
-  RESULT_PLAYER_WIN,
-  RESULT_PLAYER_LOSE,
+  RESULT_NONE, // handen är i spel
+
+  RESULT_PUSH, // handen är lika med dealerns hand
+  RESULT_PLAYER_WIN, // spelarens hand är högre
+  RESULT_PLAYER_LOSE, // spelarens hand är lägre
+
   RESULT_COUNT,
 };
 
+// en hand
 typedef struct {
   i32 result;
-  i32 *cards;
-  u32 worth;
+  i32 *cards; // en array med kort
+  u32 worth; // det totala värdet på korten i handen
 } hand_t;
 
+// slumpar fram ett nummer från 0 till max med hjälp av klockan.
 u32 get_rand(u32 max) {
   local_persist u32 offset = 0;
   struct timespec seed;
@@ -62,6 +72,7 @@ u32 get_rand(u32 max) {
   return result;
 }
 
+// ger index på en slot där ett kort ännu inte har blivit plaserad. används vid fyllnad av kortlek.
 i32 find_empty_card_index(i32 *deck) {
   i32 index = get_rand(52);
   if (deck[index] != -1) {
@@ -77,6 +88,7 @@ i32 find_empty_card_index(i32 *deck) {
   return index;
 }
 
+// tar in en array och kastar runt innehållet.
 void shuffle(int *array, size_t n) {
   time_t seed = time(NULL);
 
@@ -90,38 +102,47 @@ void shuffle(int *array, size_t n) {
   }
 }
 
+// fyller en kortlek med 52 kort
 void generate_deck(i32 *deck) {
-  for (u32 i = 0; i < 52; ++i) {
+  for (u32 i = 0; i < 52; ++i) { // töm hela kortleken genom att sätta varje kort till -1
     deck[i] = -1;
   }
 
+  // gå igenom varje kort och lägg till 4 av dess i kortleken. Hjärter klöver spader och ruter.
   for (u32 i = 0; i < CARD_COUNT; ++i) {
     for (u32 j = 0; j < 4; ++j) {
       i32 index = find_empty_card_index(deck);
       deck[index] = i;
     }
   }
+
+  // blanda kortleken en gång för att garantera att den är slumpad. 
   shuffle(deck, 52);
 }
 
+// ger dig kortet högst upp i kortleken.
 i32 get_card(i32 *deck) {
+  // gå neråt i kortleken tills ett kort träffas på
   i32 index = 51;
   for (; index >= 0; --index) {
     if (deck[index] != -1) {
       break;
     }
   }
+
+  // spara kortet och sätt sedan kortet på platsen i kortleken till -1.
   i32 card = deck[index];
   deck[index] = -1;
   return card;
 }
 
-b32 point_in_rect(vec2 point, vec2 pos, vec2 extent) {
+b32 is_point_in_rect(vec2 point, vec2 pos, vec2 extent) {
   b32 result = point[0] >= pos[0] && point[1] >= pos[1] &&
                point[0] <= pos[0] + extent[0] && point[1] <= pos[1] + extent[1];
   return result;
 }
 
+// måla upp en array med kort
 void render_cards(i32 *cards, ggf_font_t *font, vec2 center, vec2 card_size,
                   f32 spacing, vec4 color) {
   char *card_names[CARD_COUNT] = {
@@ -129,11 +150,14 @@ void render_cards(i32 *cards, ggf_font_t *font, vec2 center, vec2 card_size,
   };
 
   u32 card_count = ggf_darray_get_length(cards);
-  vec2 pos = {center[0] -
-                  (card_size[0] * card_count + spacing * (card_count - 1)) /
-                      2.0f,
+
+  // räkna ut bredden på alla korten efter varndra med mellanrum i åtanke.
+  f32 cards_width = (card_size[0] * card_count + spacing * (card_count - 1));
+  // räkna ut positionen
+  vec2 pos = {center[0] - cards_width / 2.0f,
               center[1] - card_size[1] / 2.0f};
   for (u32 i = 0; i < card_count; ++i) {
+    // för varje kort, måla en bakgrundsfyrkant och text i mitten.
 
     ggf_draw_quad_extent((vec2){pos[0] + (card_size[0] + spacing) * i, pos[1]},
                          card_size, 1.0f, color, NULL);
@@ -150,11 +174,12 @@ void render_cards(i32 *cards, ggf_font_t *font, vec2 center, vec2 card_size,
   }
 }
 
+// måla och processera en knapp
 b32 button(char *text, ggf_font_t *font, vec2 pos, vec2 size, vec2 mouse_pos,
            i32 *out_state) {
   b32 result = FALSE;
 
-  if (point_in_rect(mouse_pos, pos, size)) {
+  if (is_point_in_rect(mouse_pos, pos, size)) {
     if (*out_state != BUTTON_STATE_RELEASED) {
       *out_state = BUTTON_STATE_HOVER;
     }
@@ -196,6 +221,8 @@ u32 calculate_cards_worth(i32 *cards) {
     ace_count += (cards[i] == CARD_ACE);
     result += card_worth[cards[i]];
   }
+
+  // om det går så läggs 10 på för varje A.
   while (21 - result >= 10 && ace_count > 0) {
     result += 10;
     --ace_count;
@@ -205,44 +232,49 @@ u32 calculate_cards_worth(i32 *cards) {
 }
 
 void create_hand(hand_t *hand) {
-  hand->cards = ggf_darray_create(4, sizeof(i32));
+  hand->cards = ggf_darray_create(4, sizeof(i32)); // skapa en dynamisk array.
   hand->worth = 0;
 }
 
 void add_card_to_hand(hand_t *hand, i32 card) {
+  // lägg till det givna handen till handes kort och omkalkulera handens värde.
+
   i32 new_card = card;
   hand->cards = ggf_darray_push(hand->cards, &new_card);
   hand->worth = calculate_cards_worth(hand->cards);
 }
 
 i32 main(i32 argc, char **argv) {
+  // starta ggf och skapa en fönster med titlen "Blackjack".
   ggf_init(argc, argv);
   ggf_window_t *window = ggf_window_create("Blackjack", WIDTH, HEIGHT);
   ggf_window_set_resizable(window, FALSE);
-
   ggf_gfx_init(WIDTH, HEIGHT);
 
+  // ladda in en font från filerna "test old"
   ggf_font_t font;
   ggf_font_load("test old.png", "test old.csv", &font);
 
+  // skapa en kamera
   ggf_camera_t camera = {0};
   glm_ortho(0.0f, WIDTH, HEIGHT, 0.0f, -100.0f, 100.0f, camera.view_projection);
   ggf_gfx_set_camera(&camera);
 
-
+  // kortleken som används i spelet
   i32 deck[52];
   generate_deck(deck);
 
-  u32 player_hand_index = 0;
+  u32 player_hand_index = 0; 
   u32 player_hand_count = 1;
-  hand_t player_hands[8] = {};
-  for (u32 i = 0; i < sizeof(player_hands) / sizeof(player_hands[0]); ++i) {
+  hand_t player_hands[8] = {}; // spelarens händer. maximalt 8 st. bORde inte bli fler.
+  for (u32 i = 0; i < 8; ++i) {
     create_hand(player_hands + i);
   }
 
   hand_t dealer_hand = {};
   create_hand(&dealer_hand);
 
+  // utgå från att alla knappar är rest.
   i32 stand_button_state = BUTTON_STATE_REST;
   i32 hit_button_state = BUTTON_STATE_REST;
 
@@ -252,58 +284,53 @@ i32 main(i32 argc, char **argv) {
   i32 double_button_state = BUTTON_STATE_REST;
   i32 split_button_state = BUTTON_STATE_REST;
 
+  // börja med $1000 och $1 i bet
   i32 money = 1000;
   i32 current_bet = 1;
 
+  // starta i betting stadiet
   i32 game_state = GAME_STATE_BETTING;
 
-  f32 dealer_timer = 0.0f;
+  f32 dealer_timer = 0.0f; // en timer som används för att fördröja dealerns utdelning av kort
 
   f32 dt = 1.0f / 60.0f;
   while (ggf_window_is_open(window)) {
     ggf_poll_events();
 
-    ggf_gfx_set_clear_color((vec3){0.1f, 0.3f, 0.1f});
+    ggf_gfx_set_clear_color((vec3){0.1f, 0.3f, 0.1f}); // bakgrunsfärg
 
-    ggf_gfx_begin_frame();
+    ggf_gfx_begin_frame(); // starta rendering
 
-    i32 m_x, m_y;
+    i32 m_x, m_y; // musens position
     ggf_input_get_mouse_position(&m_x, &m_y);
-    vec2 mouse_pos = {(f32)m_x, (f32)m_y};
+    vec2 mouse_pos = {(f32)m_x, (f32)m_y}; 
 
     if (game_state == GAME_STATE_BETTING) {
+      // om spelstadiet är i betting
+
       f32 side_margin = 250.0f;
       vec2 button_size = {100.0f, 100.0f};
       vec2 minus_button_pos = {side_margin, (HEIGHT - button_size[1]) / 2.0f};
       vec2 plus_button_pos = {WIDTH - button_size[0] - side_margin,
                               (HEIGHT - button_size[1]) / 2.0f};
+      
+      u32 change_amount = 1;
+      if (current_bet > 5)
+        amount = 5;
+      if (current_bet > 50)
+        amount = 10;
+      if (current_bet > 100)
+        amount = 50;
+      if (current_bet > 300)
+        amount = 100;
 
-      if (button("-", &font, minus_button_pos, button_size, mouse_pos,
-                 &minus_button_state)) {
-        u32 amount = 1;
-        if (current_bet > 5)
-          amount = 5;
-        if (current_bet > 50)
-          amount = 10;
-        if (current_bet > 100)
-          amount = 50;
-        if (current_bet > 300)
-          amount = 100;
-        current_bet -= amount;
+      if (button("-", &font, minus_button_pos, button_size, mouse_pos, &minus_button_state)) {
+        current_bet -= change_amount;
       }
-      if (button("+", &font, plus_button_pos, button_size, mouse_pos,
-                 &plus_button_state)) {
-        u32 amount = 1;
-        if (current_bet >= 5)
-          amount = 5;
-        if (current_bet >= 50)
-          amount = 10;
-        if (current_bet >= 100)
-          amount = 50;
-        if (current_bet >= 300)
-          amount = 100;
-        current_bet += amount;
+      if (button("+", &font, plus_button_pos, button_size, mouse_pos, &plus_button_state)) {
+        current_bet += change_amount;
       }
+      // se till så att bet aldrig blir mer än mängden pengar och inte mindre än 0
       current_bet = (current_bet > money) ? money
                     : (current_bet < 0)   ? 0
                                           : current_bet;
@@ -312,26 +339,28 @@ i32 main(i32 argc, char **argv) {
       vec2 deal_button_pos = {(WIDTH - deal_button_size[0]) / 2.0f,
                               HEIGHT - 250.0f};
       if (current_bet > 0 &&
-          (button("DEAL", &font, deal_button_pos, deal_button_size, mouse_pos,
-                  &deal_button_state) ||
+          (button("DEAL", &font, deal_button_pos, deal_button_size, mouse_pos, &deal_button_state) ||
            ggf_input_key_released(GGF_KEY_SPACE))) {
+        // när spelaren vill starta spelet så byts stadiet till "dealing".
         game_state = GAME_STATE_DEALING;
       }
+
     } else if (game_state == GAME_STATE_DEALING) {
+      
       dealer_timer += dt;
 
-      for (u32 i = 0; i < player_hand_count; ++i) {
-        hand_t *hand = player_hands + i;
-        u32 card_count = ggf_darray_get_length(hand->cards);
-        if ((dealer_timer > (i + 1) * 0.5f && card_count == 0) ||
-            (dealer_timer - 0.5f > (i + 1) * 1.0f && card_count == 1)) {
-          add_card_to_hand(hand, get_card(deck));
-        }
+      // när börja med att ge kort till hand.
+      u32 card_count = ggf_darray_get_length(player_hands[player_hand_index].cards);
+      if ((dealer_timer > (i + 1) * 0.5f && card_count == 0) ||
+          (dealer_timer - 0.5f > (i + 1) * 1.0f && card_count == 1)) {
+        add_card_to_hand(player_hands[player_hand_index].cards, get_card(deck));
       }
+      // när timern når ett värde ska även dealern få ett kort
       if (dealer_timer > (player_hand_count + 1) * 0.5f &&
           ggf_darray_get_length(dealer_hand.cards) == 0) {
         add_card_to_hand(&dealer_hand, get_card(deck));
       }
+      // ge det andra kortet till spelaren
       if (dealer_timer > player_hand_count * 1.0f + 0.5f) {
         dealer_timer = 0.0f;
         if (player_hands[player_hand_index].worth == 21) {
@@ -485,17 +514,22 @@ i32 main(i32 argc, char **argv) {
       u32 info_text_size = 52;
       char cards_info[128];
 
-      vec2 card_size = {150.0f, 225.0f};
+      u32 total_card_count = 0;
+      for (u32 i = 0; i < player_hand_count; ++i) {
+        total_card_count += ggf_darray_get_length(player_hands[i].cards);
+      }
       f32 spacing = 15.0f;
-      // PLAYER HANDs
+      vec2 card_size = {150.0f, 225.0f};
 
+      // PLAYER HANDs
       f32 section_size = WIDTH / player_hand_count;
       for (u32 i = 0; i < player_hand_count; ++i) {
         hand_t *p_hand = player_hands + i;
+        u32 card_count = ggf_darray_get_length(p_hand->cards);
         vec2 pos = {section_size * i + section_size / 2.0f, HEIGHT - 130.0f};
 
-        if (i == player_hand_index || game_state == GAME_STATE_RESULT) {
-          u32 card_count = ggf_darray_get_length(p_hand->cards);
+        if ((i == player_hand_index && card_count > 0) || 
+            game_state == GAME_STATE_DEALER_TURN || game_state == GAME_STATE_RESULT) {
           f32 w = card_count * card_size[0] + spacing * (card_count - 1);
           ggf_gfx_draw_quad_corners(
               (vec2){pos[0] - w / 2.0f - spacing, HEIGHT - 300.0f},
