@@ -238,9 +238,7 @@ void create_hand(hand_t *hand) {
 
 void add_card_to_hand(hand_t *hand, i32 card) {
   // lägg till det givna handen till handes kort och omkalkulera handens värde.
-
-  i32 new_card = card;
-  hand->cards = ggf_darray_push(hand->cards, &new_card);
+  hand->cards = ggf_darray_push(hand->cards, &card);
   hand->worth = calculate_cards_worth(hand->cards);
 }
 
@@ -293,7 +291,7 @@ i32 main(i32 argc, char **argv) {
 
   f32 dealer_timer = 0.0f; // en timer som används för att fördröja dealerns utdelning av kort
 
-  f32 dt = 1.0f / 60.0f;
+  f32 dt = 1.0f / 60.0f; // antalet sekunder per frame.
   while (ggf_window_is_open(window)) {
     ggf_poll_events();
 
@@ -315,14 +313,14 @@ i32 main(i32 argc, char **argv) {
                               (HEIGHT - button_size[1]) / 2.0f};
       
       u32 change_amount = 1;
-      if (current_bet > 5)
-        amount = 5;
-      if (current_bet > 50)
-        amount = 10;
-      if (current_bet > 100)
-        amount = 50;
-      if (current_bet > 300)
-        amount = 100;
+      if (current_bet >= 5)
+        change_amount = 5;
+      if (current_bet >= 50)
+        change_amount = 10;
+      if (current_bet >= 100)
+        change_amount = 50;
+      if (current_bet >= 300)
+        change_amount = 100;
 
       if (button("-", &font, minus_button_pos, button_size, mouse_pos, &minus_button_state)) {
         current_bet -= change_amount;
@@ -346,14 +344,13 @@ i32 main(i32 argc, char **argv) {
       }
 
     } else if (game_state == GAME_STATE_DEALING) {
-      
       dealer_timer += dt;
 
-      // när börja med att ge kort till hand.
+      // börja med att ge ett kort till spelaren.
       u32 card_count = ggf_darray_get_length(player_hands[player_hand_index].cards);
-      if ((dealer_timer > (i + 1) * 0.5f && card_count == 0) ||
-          (dealer_timer - 0.5f > (i + 1) * 1.0f && card_count == 1)) {
-        add_card_to_hand(player_hands[player_hand_index].cards, get_card(deck));
+      if ((dealer_timer > 0.5f && card_count == 0) ||
+          (dealer_timer - 0.5f > 1.0f && card_count == 1)) {
+        add_card_to_hand(player_hands + player_hand_index, get_card(deck));
       }
       // när timern når ett värde ska även dealern få ett kort
       if (dealer_timer > (player_hand_count + 1) * 0.5f &&
@@ -371,10 +368,12 @@ i32 main(i32 argc, char **argv) {
       }
 
     } else if (game_state == GAME_STATE_PLAYER_TURN) {
+      // spelarens tur
 
       hand_t *hand = player_hands + player_hand_index;
       u32 card_count = ggf_darray_get_length(hand->cards);
 
+      // om spealren splittar så har den bara ett kort i handen. Lägg därför till ett kort om detta sker.
       if (card_count == 1) {
         dealer_timer += dt;
         if (dealer_timer >= 0.5f) {
@@ -383,14 +382,14 @@ i32 main(i32 argc, char **argv) {
         }
       }
 
-      b32 can_split = card_count == 2 && card_worth[hand->cards[0]] == card_worth[hand->cards[1]] &&
-                      current_bet * 2 <= money;
+      b32 can_stand = card_count >= 2; // spelaren får bara stoppa om handen har minst två kort. (undviker att spelaren stoppar precis efter att dem splittat)
+      b32 can_split = card_count == 2 && card_worth[hand->cards[0]] == card_worth[hand->cards[1]] && current_bet * 2 <= money;
       b32 can_double = card_count == 2 && current_bet * 2 <= money;
 
-      f32 button_side_margin = 150.0f;
+      f32 button_side_margin = 150.0f; // avstånd från vänster och höger sida av fönstret.
       vec2 button_size = {200.0f, 100.0f};
 
-      f32 y_offset = -200.0f;
+      f32 y_offset = -250.0f;
       vec2 stand_button_pos = {WIDTH - button_side_margin - button_size[0],
                                (HEIGHT - button_size[1]) / 2.0f + y_offset};
       vec2 hit_button_pos = {button_side_margin,
@@ -402,29 +401,27 @@ i32 main(i32 argc, char **argv) {
                                  ? split_button_pos[1] + button_size[1] + 10.0f
                                  : split_button_pos[1]};
 
-      if (button("STAND", &font, stand_button_pos, button_size, mouse_pos,
+      if (can_stand && button("STAND", &font, stand_button_pos, button_size, mouse_pos,
                  &stand_button_state)) {
-        if (player_hand_index == player_hand_count - 1) {
+        if (player_hand_index == player_hand_count - 1) { // om detta är sista handen är det dealerns tur.
           game_state = GAME_STATE_DEALER_TURN;
           player_hand_index = 0;
-        } else {
+        } else { // annars byt till nästa hand. (sker bara när spelaren har splittat)
           ++player_hand_index;
         }
       }
 
-      if (button("HIT", &font, hit_button_pos, button_size, mouse_pos,
-                 &hit_button_state)) {
+      if (button("HIT", &font, hit_button_pos, button_size, mouse_pos, &hit_button_state)) {
         add_card_to_hand(hand, get_card(deck));
       }
 
-      if (can_split && button("SPLIT", &font, split_button_pos, button_size,
-                              mouse_pos, &split_button_state)) {
+      if (can_split && button("SPLIT", &font, split_button_pos, button_size, mouse_pos, &split_button_state)) {
         i32 card;
-        ggf_darray_pop(hand->cards, &card);
+        ggf_darray_pop(hand->cards, &card); // ta bort koretet från nuvarande hand
 
         hand_t *new_hand = player_hands + player_hand_count;
-        ggf_darray_push(new_hand->cards, &card);
-        new_hand->worth = calculate_cards_worth(new_hand->cards);
+        add_card_to_hand(new_hand, card); // lägg till kortet i den nya handen
+
         ++player_hand_count;
       }
 
@@ -432,6 +429,8 @@ i32 main(i32 argc, char **argv) {
                                mouse_pos, &double_button_state)) {
         current_bet *= 2;
         add_card_to_hand(hand, get_card(deck));
+
+        // efter att ha dubblat kan spelaren inte fortsätta på samma hand.
         if (player_hand_index == player_hand_count - 1) {
           game_state = GAME_STATE_DEALER_TURN;
           player_hand_index = 0;
@@ -440,6 +439,7 @@ i32 main(i32 argc, char **argv) {
         }
       }
 
+      // om spelarens hand gått över 21 så är handen slut.
       if (hand->worth >= 21) {
         if (player_hand_index == player_hand_count - 1) {
           game_state = GAME_STATE_RESULT;
@@ -449,6 +449,8 @@ i32 main(i32 argc, char **argv) {
       }
 
     } else if (game_state == GAME_STATE_DEALER_TURN) {
+      // lägg till ett kort på dealerns hand varje sekund.
+
       dealer_timer += dt;
       if (dealer_timer >= 1.0f) {
         add_card_to_hand(&dealer_hand, get_card(deck));
@@ -460,13 +462,16 @@ i32 main(i32 argc, char **argv) {
         dealer_timer = 0.0f;
       }
     } else if (game_state == GAME_STATE_RESULT) {
-      while (ggf_darray_get_length(dealer_hand.cards) < 2) {
+      while (ggf_darray_get_length(dealer_hand.cards) < 2) { // garantera att dealern har två kort på handen.
         add_card_to_hand(&dealer_hand, get_card(deck));
       }
 
+      // räkna ut resultatet för varje hand.
       for (u32 i = 0; i < player_hand_count; ++i) {
         hand_t *hand = player_hands + i;
-        if (hand->result == RESULT_NONE) {
+
+        if (hand->result == RESULT_NONE) { // bara om handen inte har ett resultat
+
           if (hand->worth > 21) {
             hand->result = RESULT_PLAYER_LOSE;
             money -= current_bet;
@@ -474,7 +479,7 @@ i32 main(i32 argc, char **argv) {
                      hand->worth > dealer_hand.worth) {
             hand->result = RESULT_PLAYER_WIN;
             money += current_bet;
-            if (hand->worth == 21) {
+            if (hand->worth == 21) { // dubbel vinst vid blackjack
               money += current_bet;
             }
           } else if (dealer_hand.worth == hand->worth) {
@@ -486,9 +491,9 @@ i32 main(i32 argc, char **argv) {
         }
       }
 
-      if (ggf_input_key_released(GGF_KEY_SPACE) ||
-          ggf_input_mouse_released(GGF_MOUSE_BUTTON_LEFT)) {
-        for (u32 i = 0; i < player_hand_count; ++i) {
+      // om spelaren trycker på space eller klickar så avslutas rundan.
+      if (ggf_input_key_released(GGF_KEY_SPACE) || ggf_input_mouse_released(GGF_MOUSE_BUTTON_LEFT)) {
+        for (u32 i = 0; i < player_hand_count; ++i) { // nollställ alla händer.
           hand_t *hand = player_hands + i;
           ggf_darray_clear(hand->cards);
           hand->worth = 0;
@@ -499,35 +504,34 @@ i32 main(i32 argc, char **argv) {
         ggf_darray_clear(dealer_hand.cards);
         dealer_hand.worth = 0;
 
-        generate_deck(deck);
+        generate_deck(deck); // generera fram en ny fullständig kortlek.
 
-        game_state = GAME_STATE_BETTING;
+        game_state = GAME_STATE_BETTING; // gå till baka till betting stadiet.
       }
     }
 
+    // text som visar mängden pengar
     char money_text[128];
-    snprintf(money_text, 128, "$%d", money - current_bet);
+    snprintf(money_text, 128, "$%d", game_state == GAME_STATE_RESULT ? money : money - current_bet);
     ggf_gfx_draw_text(money_text, (vec2){25.0f, 50.0f}, 32,
                       (vec4){0.0f, 0.0f, 0.0f, 1.0f}, &font);
 
+    // visa bara kort m.m om spelaren inte är i betting stadiet.
     if (game_state != GAME_STATE_BETTING) {
-      u32 info_text_size = 52;
+      u32 info_text_size = 52; // typsnitts storlek på texten ovanför varje hand.
       char cards_info[128];
 
-      u32 total_card_count = 0;
-      for (u32 i = 0; i < player_hand_count; ++i) {
-        total_card_count += ggf_darray_get_length(player_hands[i].cards);
-      }
-      f32 spacing = 15.0f;
+      f32 spacing = 15.0f; // avstånd mellan varje kort.
       vec2 card_size = {150.0f, 225.0f};
 
-      // PLAYER HANDs
-      f32 section_size = WIDTH / player_hand_count;
+      // SPELARENS HÄNDER
+      f32 section_size = WIDTH / player_hand_count; // dela upp hela skärmen i lika många delar som spelarens händer. 
       for (u32 i = 0; i < player_hand_count; ++i) {
         hand_t *p_hand = player_hands + i;
         u32 card_count = ggf_darray_get_length(p_hand->cards);
         vec2 pos = {section_size * i + section_size / 2.0f, HEIGHT - 130.0f};
 
+        // visa bara den gula bakgrunden på den handen som för nuvarande spelas. Eller på alla om spelstadiet är i dealer eller resultat.
         if ((i == player_hand_index && card_count > 0) || 
             game_state == GAME_STATE_DEALER_TURN || game_state == GAME_STATE_RESULT) {
           f32 w = card_count * card_size[0] + spacing * (card_count - 1);
@@ -537,6 +541,7 @@ i32 main(i32 argc, char **argv) {
               (vec4){0.35f, 0.3f, 0.04f, 1.0f}, NULL);
         }
 
+        // visa resultatet över händerna om stadiet är i resultat.
         if (game_state == GAME_STATE_RESULT) {
           if (p_hand->result == RESULT_PLAYER_WIN) {
             snprintf(cards_info, 128, "WIN");
@@ -548,30 +553,34 @@ i32 main(i32 argc, char **argv) {
         } else {
           snprintf(cards_info, 128, "%d", p_hand->worth);
         }
-        f32 cards_info_width =
-            ggf_font_get_text_width(&font, cards_info, info_text_size);
+
+        // visa text över varje hand
+        f32 cards_info_width = ggf_font_get_text_width(&font, cards_info, info_text_size);
         ggf_gfx_draw_text(
             cards_info,
             (vec2){pos[0] - cards_info_width / 2.0f, HEIGHT - 250.0f},
             info_text_size, (vec4){1.0f, 0.5f, 0.5f, 1.0f}, &font);
 
+        // visa korten i denna hand
         render_cards(p_hand->cards, &font, pos, card_size, spacing,
                      (vec4){1.0f, 0.1f, 0.1f, 1.0f});
       }
 
-      // DEALER HAND
+      // DEALERNS HAND
 
+      // text
       snprintf(cards_info, 128, "%d", dealer_hand.worth);
-      f32 cards_info_width =
-          ggf_font_get_text_width(&font, cards_info, info_text_size);
+      f32 cards_info_width = ggf_font_get_text_width(&font, cards_info, info_text_size);
       ggf_gfx_draw_text(cards_info,
                         (vec2){(WIDTH - cards_info_width) / 2.0f, 285.0f},
                         info_text_size, (vec4){0.5f, 0.5f, 1.0f, 1.0f}, &font);
 
+      // kort
       render_cards(dealer_hand.cards, &font, (vec2){WIDTH / 2.0f, 130.0f},
                    card_size, spacing, (vec4){0.1f, 0.1f, 0.9f, 1.0f});
     }
 
+    // visa bara betting mängden när spel stadiet inte är resultat.
     if (game_state != GAME_STATE_RESULT) {
       char bet_text[128];
       snprintf(bet_text, 128, "$%d", current_bet);
@@ -584,7 +593,6 @@ i32 main(i32 argc, char **argv) {
     }
 
     ggf_gfx_flush();
-
     ggf_window_swap_buffers(window);
   }
 
